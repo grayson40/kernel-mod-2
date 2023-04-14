@@ -1,3 +1,10 @@
+/**
+ * File:    lkm_pa2_out.c
+ * Adapted for Linux 5.15 by: John Aedo
+ * Class:   COP4600-SP23
+ * Group members: Sam Durkee, Grayson Crozier, and Chance Rupnow
+ */
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -6,14 +13,15 @@
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
 
-#define DEVICE_NAME "lkm_pa2-out"
-#define CLASS_NAME "char"
+#define DEVICE_NAME "lkm_pa2_out"
+#define CLASS_NAME "out_char"
 #define BUFFER_LENGTH 1024
 
+MODULE_INFO(name, "lkm_pa2_out");
+MODULE_INFO(description, "Output Kernel Module");
+MODULE_INFO(version, "0.1");
+MODULE_INFO(author, "The homies");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("The homies");
-MODULE_DESCRIPTION("Output Kernel Module");
-MODULE_VERSION("0.1");
 
 static int major_number;
 static int numberOpens = 0;
@@ -35,10 +43,7 @@ static struct file_operations fops = {
     .read = read,
 };
 
-// Include functions for open, close, read and other necessary functions as in the original code
-// Make sure to use mutex_lock and mutex_unlock for critical sections
-
-int init_module(void)
+static int __init lkm_pa2_out_init(void)
 {
     printk(KERN_INFO "%s: installing output module.\n", DEVICE_NAME);
 
@@ -52,35 +57,35 @@ int init_module(void)
     printk(KERN_INFO "%s: registered correctly with major number %d\n", DEVICE_NAME, major_number);
 
     // Register the device class
-    deviceClass = class_create(THIS_MODULE, CLASS_NAME);
-    if (IS_ERR(deviceClass))
+    lkm_outputClass = class_create(THIS_MODULE, CLASS_NAME);
+    if (IS_ERR(lkm_outputClass))
     { // Check for error and clean up if there is
         unregister_chrdev(major_number, DEVICE_NAME);
         printk(KERN_ALERT "Failed to register device class\n");
-        return PTR_ERR(deviceClass); // Correct way to return an error on a pointer
+        return PTR_ERR(lkm_outputClass); // Correct way to return an error on a pointer
     }
     printk(KERN_INFO "%s: device class registered correctly\n", DEVICE_NAME);
 
     // Register the device driver
-    deviceDriver = device_create(deviceClass, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
-    if (IS_ERR(deviceDriver))
+    lkm_outputDevice = device_create(lkm_outputClass, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
+    if (IS_ERR(lkm_outputDevice))
     {                                // Clean up if there is an error
-        class_destroy(deviceClass); // Repeated code but the alternative is goto statements
+        class_destroy(lkm_outputClass); // Repeated code but the alternative is goto statements
         unregister_chrdev(major_number, DEVICE_NAME);
         printk(KERN_ALERT "Failed to create the device\n");
-        return PTR_ERR(deviceDriver);
+        return PTR_ERR(lkm_outputDevice);
     }
     printk(KERN_INFO "%s: device class created correctly\n", DEVICE_NAME); // Made it! device was initialized
 
     return 0;
 }
 
-void cleanup_module(void)
+static void __exit lkm_pa2_out_exit(void)
 {
     printk(KERN_INFO "%s: removing output module.\n", DEVICE_NAME);
-    device_destroy(lkmasg1Class, MKDEV(major_number, 0)); // remove the device
-    class_unregister(lkmasg1Class);                       // unregister the device class
-    class_destroy(lkmasg1Class);                          // remove the device class
+    device_destroy(lkm_outputClass, MKDEV(major_number, 0)); // remove the device
+    class_unregister(lkm_outputClass);                       // unregister the device class
+    class_destroy(lkm_outputClass);                          // remove the device class
     unregister_chrdev(major_number, DEVICE_NAME);         // unregister the major number
     printk(KERN_INFO "%s: Goodbye from the LKM!\n", DEVICE_NAME);
     unregister_chrdev(major_number, DEVICE_NAME);
@@ -99,18 +104,19 @@ static int close(struct inode *inodep, struct file *filep) {
 }
 
 static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
+    int bytes_to_read, error;
     printk(KERN_INFO "%s: waiting on lock.\n", DEVICE_NAME);
     mutex_lock(&shared_buffer_mutex);
 
     printk(KERN_INFO "%s: acquiring lock.\n", DEVICE_NAME);
-    int bytes_to_read = min(len, (size_t)sizeOfMessage);
+    bytes_to_read = min(len, (size_t)sizeOfMessage);
 
     if (bytes_to_read == 0) {
         printk(KERN_INFO "%s: buffer is empty.\n", DEVICE_NAME);
     }
 
     printk(KERN_INFO "%s: in critical section.\n", DEVICE_NAME);
-    int error = copy_to_user(buffer, shared_buffer, bytes_to_read);
+    error = copy_to_user(buffer, shared_buffer, bytes_to_read);
 
     if (error == 0) {
         memmove(shared_buffer, shared_buffer + bytes_to_read, sizeOfMessage - bytes_to_read);
@@ -128,3 +134,6 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
         return -EFAULT;
     }
 }
+
+module_init(lkm_pa2_out_init);
+module_exit(lkm_pa2_out_exit);
